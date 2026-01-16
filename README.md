@@ -1,6 +1,6 @@
 # json-to-schema
 
-Generate a JSON Schema (draft 2020-12) from a sample JSON instance.
+Generate a JSON Schema (based on [draft 2020-12](https://json-schema.org/draft/2020-12)) from a sample JSON instance.
 
 ## Features
 
