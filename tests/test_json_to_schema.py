@@ -10,6 +10,8 @@ from unittest.mock import patch
 
 import json_to_schema
 
+FIXTURES_DIR = Path(__file__).parent / "fixtures"
+
 
 class FakeStdin(io.StringIO):
     def __init__(self, text: str, *, is_tty: bool):
@@ -272,6 +274,51 @@ class TestMain(unittest.TestCase):
             with patch.object(sys, "stdin", stdin):
                 with self.assertRaises(json.JSONDecodeError):
                     json_to_schema.main()
+
+
+class TestFixtureDrivenSchemaInference(unittest.TestCase):
+    CASES = [
+        "user_profile",
+        "events_mixed_array",
+        "nullable_variants",
+        "optional_keys_objects",
+        "deep_nested_collections",
+        "mixed_scalar_array",
+    ]
+
+    def _load_json(self, path: Path):
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def test_infer_schema_matches_expected_from_fixtures(self):
+        for case in self.CASES:
+            with self.subTest(case=case):
+                input_path = FIXTURES_DIR / f"{case}.input.json"
+                expected_path = FIXTURES_DIR / f"{case}.expected_schema.json"
+
+                data = self._load_json(input_path)
+                expected_schema = self._load_json(expected_path)
+                actual_schema = json_to_schema.infer_schema(data)
+
+                self.assertEqual(actual_schema, expected_schema)
+
+    def test_main_generates_expected_schema_from_fixture_files(self):
+        for case in self.CASES:
+            with self.subTest(case=case):
+                input_path = FIXTURES_DIR / f"{case}.input.json"
+                expected_path = FIXTURES_DIR / f"{case}.expected_schema.json"
+
+                expected_schema = {
+                    "$schema": json_to_schema.SCHEMA_DRAFT,
+                    **self._load_json(expected_path),
+                }
+
+                buf = io.StringIO()
+                with patch.object(sys, "argv", ["json_to_schema.py", "-i", str(input_path)]):
+                    with redirect_stdout(buf):
+                        json_to_schema.main()
+
+                actual_schema = json.loads(buf.getvalue())
+                self.assertEqual(actual_schema, expected_schema)
 
 
 if __name__ == "__main__":
