@@ -19,7 +19,7 @@ Generate a JSON Schema (based on [draft 2020-12](https://json-schema.org/draft/2
 pip install json-to-schema
 ```
 
-## Usage
+## CLI Usage
 
 Provide an input JSON file (defaults to `file.json`) and print the inferred schema to stdout:
 
@@ -31,6 +31,29 @@ Specify a custom input file and write output to a schema file:
 
 ```bash
 json-to-schema -i input.json -o schema.json
+```
+
+## Library Usage
+
+You can also import and use this package directly in Python applications:
+
+```python
+import json
+from json_to_schema import infer_schema, SCHEMA_DRAFT
+
+data = {
+  "name": "Widget",
+  "price": 12.5,
+  "tags": ["sale", "featured"],
+  "in_stock": True
+}
+
+schema = {
+  "$schema": SCHEMA_DRAFT,
+  **infer_schema(data)
+}
+
+print(json.dumps(schema, indent=2))
 ```
 
 ## Example
