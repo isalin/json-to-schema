@@ -13,18 +13,24 @@ Generate a JSON Schema (based on [draft 2020-12](https://json-schema.org/draft/2
 
 - Python 3.8+
 
+## Install
+
+```bash
+pip install json-to-schema
+```
+
 ## Usage
 
 Provide an input JSON file (defaults to `file.json`) and print the inferred schema to stdout:
 
 ```bash
-python json_to_schema.py
+json-to-schema
 ```
 
 Specify a custom input file and write output to a schema file:
 
 ```bash
-python json_to_schema.py -i input.json -o schema.json
+json-to-schema -i input.json -o schema.json
 ```
 
 ## Example
@@ -43,7 +49,7 @@ Input (`input.json`):
 Run:
 
 ```bash
-python json_to_schema.py -i input.json -o schema.json
+json-to-schema -i input.json -o schema.json
 ```
 
 Output (`schema.json`):
@@ -69,5 +75,5 @@ Output (`schema.json`):
 ## Testing
 
 ```bash
-python -m unittest
+python -m unittest discover -s tests
 ```
