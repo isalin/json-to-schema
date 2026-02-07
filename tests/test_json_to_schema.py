@@ -1,5 +1,6 @@
 import io
 import json
+import os
 import sys
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -8,6 +9,15 @@ import unittest
 from unittest.mock import patch
 
 import json_to_schema
+
+
+class FakeStdin(io.StringIO):
+    def __init__(self, text: str, *, is_tty: bool):
+        super().__init__(text)
+        self._is_tty = is_tty
+
+    def isatty(self):
+        return self._is_tty
 
 
 class TestJsonType(unittest.TestCase):
@@ -120,6 +130,91 @@ class TestInferSchema(unittest.TestCase):
 
 
 class TestMain(unittest.TestCase):
+    def test_main_reads_piped_stdin_when_input_not_specified(self):
+        buf = io.StringIO()
+        stdin = FakeStdin(json.dumps({"from_stdin": True}), is_tty=False)
+        with patch.object(sys, "argv", ["json_to_schema.py"]):
+            with patch.object(sys, "stdin", stdin):
+                with redirect_stdout(buf):
+                    json_to_schema.main()
+
+        output = json.loads(buf.getvalue())
+        self.assertEqual(output["$schema"], json_to_schema.SCHEMA_DRAFT)
+        self.assertEqual(output["properties"]["from_stdin"]["type"], "boolean")
+
+    def test_main_reads_stdin_even_if_default_file_exists(self):
+        with TemporaryDirectory() as tmpdir:
+            default_file = Path(tmpdir) / "file.json"
+            default_file.write_text(json.dumps({"from_file": "value"}), encoding="utf-8")
+
+            buf = io.StringIO()
+            stdin = FakeStdin(json.dumps({"from_stdin": 123}), is_tty=False)
+            with patch.object(sys, "argv", ["json_to_schema.py"]):
+                with patch.object(sys, "stdin", stdin):
+                    old_cwd = os.getcwd()
+                    try:
+                        os.chdir(tmpdir)
+                        with redirect_stdout(buf):
+                            json_to_schema.main()
+                    finally:
+                        os.chdir(old_cwd)
+
+            output = json.loads(buf.getvalue())
+            self.assertIn("from_stdin", output["properties"])
+            self.assertNotIn("from_file", output["properties"])
+
+    def test_main_prefers_explicit_input_file_over_stdin(self):
+        with TemporaryDirectory() as tmpdir:
+            input_path = Path(tmpdir) / "input.json"
+            input_path.write_text(json.dumps({"from_file": 1}), encoding="utf-8")
+
+            buf = io.StringIO()
+            stdin = FakeStdin(json.dumps({"from_stdin": True}), is_tty=False)
+            with patch.object(sys, "argv", ["json_to_schema.py", "-i", str(input_path)]):
+                with patch.object(sys, "stdin", stdin):
+                    with redirect_stdout(buf):
+                        json_to_schema.main()
+
+            output = json.loads(buf.getvalue())
+            self.assertIn("from_file", output["properties"])
+            self.assertNotIn("from_stdin", output["properties"])
+
+    def test_main_reads_default_file_when_stdin_is_tty(self):
+        with TemporaryDirectory() as tmpdir:
+            default_file = Path(tmpdir) / "file.json"
+            default_file.write_text(json.dumps({"from_file": "value"}), encoding="utf-8")
+
+            buf = io.StringIO()
+            stdin = FakeStdin("", is_tty=True)
+            with patch.object(sys, "argv", ["json_to_schema.py"]):
+                with patch.object(sys, "stdin", stdin):
+                    old_cwd = os.getcwd()
+                    try:
+                        os.chdir(tmpdir)
+                        with redirect_stdout(buf):
+                            json_to_schema.main()
+                    finally:
+                        os.chdir(old_cwd)
+
+            output = json.loads(buf.getvalue())
+            self.assertIn("from_file", output["properties"])
+
+    def test_main_stdin_to_output_file(self):
+        with TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "schema.json"
+            stdin = FakeStdin(json.dumps({"from_stdin": True}), is_tty=False)
+            with patch.object(
+                sys,
+                "argv",
+                ["json_to_schema.py", "-o", str(output_path)],
+            ):
+                with patch.object(sys, "stdin", stdin):
+                    json_to_schema.main()
+
+            output = json.loads(output_path.read_text(encoding="utf-8"))
+            self.assertEqual(output["$schema"], json_to_schema.SCHEMA_DRAFT)
+            self.assertIn("from_stdin", output["properties"])
+
     def test_main_stdout(self):
         with TemporaryDirectory() as tmpdir:
             input_path = Path(tmpdir) / "input.json"
@@ -157,6 +252,26 @@ class TestMain(unittest.TestCase):
             output = json.loads(output_path.read_text(encoding="utf-8"))
             self.assertEqual(output["type"], "array")
             self.assertEqual(output["items"]["type"], "string")
+
+    def test_main_missing_default_file_raises_when_stdin_is_tty(self):
+        stdin = FakeStdin("", is_tty=True)
+        with patch.object(sys, "argv", ["json_to_schema.py"]):
+            with patch.object(sys, "stdin", stdin):
+                with TemporaryDirectory() as tmpdir:
+                    old_cwd = os.getcwd()
+                    try:
+                        os.chdir(tmpdir)
+                        with self.assertRaises(FileNotFoundError):
+                            json_to_schema.main()
+                    finally:
+                        os.chdir(old_cwd)
+
+    def test_main_invalid_json_from_stdin_raises(self):
+        stdin = FakeStdin("{invalid-json", is_tty=False)
+        with patch.object(sys, "argv", ["json_to_schema.py"]):
+            with patch.object(sys, "stdin", stdin):
+                with self.assertRaises(json.JSONDecodeError):
+                    json_to_schema.main()
 
 
 if __name__ == "__main__":

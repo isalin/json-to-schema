@@ -39,6 +39,12 @@ Specify a custom input file and write output to a schema file:
 json-to-schema -i input.json -o schema.json
 ```
 
+You can also pipe JSON directly into stdin:
+
+```bash
+echo '{"name":"Widget","price":12.5}' | json-to-schema
+```
+
 ## Infer JSON Schema in Python code (library usage)
 
 You can also import and use this package directly in Python applications:

@@ -4,6 +4,7 @@ Infer a JSON Schema from a JSON instance in file.json.
 
 Usage:
   python json_to_schema.py            # reads file.json, prints schema to stdout
+  echo '{"a": 1}' | python json_to_schema.py
   python json_to_schema.py -o schema.json
 """
 
@@ -11,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from copy import deepcopy
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -193,8 +195,12 @@ def main() -> None:
     parser.add_argument("-o", "--output", default=None, help="Output schema file (default: stdout)")
     args = parser.parse_args()
 
-    with open(args.input, "r", encoding="utf-8") as f:
-        data = json.load(f)
+    # If input is omitted and stdin is piped, read JSON from stdin.
+    if args.input == "file.json" and not sys.stdin.isatty():
+        data = json.load(sys.stdin)
+    else:
+        with open(args.input, "r", encoding="utf-8") as f:
+            data = json.load(f)
 
     schema = {
         "$schema": SCHEMA_DRAFT,
