@@ -1,6 +1,6 @@
 # json-to-schema
 
-[![Build](https://img.shields.io/github/actions/workflow/status/isalin/json-to-schema/python-package.yml)](https://github.com/isalin/json-to-schema/actions/workflows/python-package.yml)
+[![Build](https://img.shields.io/github/actions/workflow/status/isalin/json-to-schema/publish.yml)](https://github.com/isalin/json-to-schema/actions/workflows/publish.yml)
 [![PyPI version](https://img.shields.io/pypi/v/json-to-schema.svg)](https://pypi.org/project/json-to-schema/)
 [![Python versions](https://img.shields.io/pypi/pyversions/json-to-schema.svg)](https://pypi.org/project/json-to-schema/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
