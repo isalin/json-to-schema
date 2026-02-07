@@ -151,7 +151,7 @@ class TestInferSchema(unittest.TestCase):
     def test_infer_schema_bounds_for_string_and_array(self):
         schema = json_to_schema.infer_schema(
             {"name": "abc", "tags": ["x", "yz"]},
-            infer_bounds=True,
+            infer_all_bounds=True,
         )
         self.assertEqual(schema["properties"]["name"]["minLength"], 3)
         self.assertEqual(schema["properties"]["name"]["maxLength"], 3)
@@ -161,19 +161,40 @@ class TestInferSchema(unittest.TestCase):
         self.assertEqual(schema["properties"]["tags"]["items"]["maxLength"], 2)
 
     def test_infer_schema_bounds_for_empty_array(self):
-        schema = json_to_schema.infer_schema([], infer_bounds=True)
+        schema = json_to_schema.infer_schema([], infer_all_bounds=True)
         self.assertEqual(schema["minItems"], 0)
         self.assertEqual(schema["maxItems"], 0)
 
     def test_infer_schema_enum_for_scalar_values(self):
-        schema = json_to_schema.infer_schema([1, 2, 1], infer_enum=True)
+        schema = json_to_schema.infer_schema([1, 2, 1], infer_all_enum=True)
         self.assertEqual(schema["items"]["enum"], [1, 2])
 
     def test_infer_schema_enum_and_bounds_together(self):
-        schema = json_to_schema.infer_schema(["aa", "b"], infer_enum=True, infer_bounds=True)
+        schema = json_to_schema.infer_schema(
+            ["aa", "b"],
+            infer_all_enum=True,
+            infer_all_bounds=True,
+        )
         self.assertEqual(schema["items"]["enum"], ["aa", "b"])
         self.assertEqual(schema["items"]["minLength"], 1)
         self.assertEqual(schema["items"]["maxLength"], 2)
+
+    def test_infer_schema_bounds_for_selected_fields_only(self):
+        schema = json_to_schema.infer_schema(
+            {"name": "abc", "status": "ok"},
+            infer_bounds_fields={"name"},
+        )
+        self.assertEqual(schema["properties"]["name"]["minLength"], 3)
+        self.assertEqual(schema["properties"]["name"]["maxLength"], 3)
+        self.assertNotIn("minLength", schema["properties"]["status"])
+
+    def test_infer_schema_enum_for_selected_fields_only(self):
+        schema = json_to_schema.infer_schema(
+            {"status": ["ok", "fail", "ok"], "kind": ["a", "b"]},
+            infer_enum_fields={"status"},
+        )
+        self.assertEqual(schema["properties"]["status"]["items"]["enum"], ["ok", "fail"])
+        self.assertNotIn("enum", schema["properties"]["kind"]["items"])
 
 
 class TestMain(unittest.TestCase):
@@ -426,7 +447,7 @@ class TestMain(unittest.TestCase):
                 with self.assertRaises(SystemExit):
                     json_to_schema.main()
 
-    def test_main_infer_bounds(self):
+    def test_main_infer_bounds_for_selected_fields(self):
         with TemporaryDirectory() as tmpdir:
             input_path = Path(tmpdir) / "input.json"
             input_path.write_text(json.dumps({"name": "abc", "scores": [1, 3]}), encoding="utf-8")
@@ -435,7 +456,48 @@ class TestMain(unittest.TestCase):
             with patch.object(
                 sys,
                 "argv",
-                ["json_to_schema.py", "-i", str(input_path), "--infer-bounds"],
+                ["json_to_schema.py", "-i", str(input_path), "--infer-bounds", "name"],
+            ):
+                with redirect_stdout(buf):
+                    json_to_schema.main()
+
+            output = json.loads(buf.getvalue())
+            self.assertEqual(output["properties"]["name"]["minLength"], 3)
+            self.assertEqual(output["properties"]["name"]["maxLength"], 3)
+            self.assertNotIn("minItems", output["properties"]["scores"])
+            self.assertNotIn("minimum", output["properties"]["scores"]["items"])
+
+    def test_main_infer_enum_for_selected_fields(self):
+        with TemporaryDirectory() as tmpdir:
+            input_path = Path(tmpdir) / "input.json"
+            input_path.write_text(
+                json.dumps({"status": ["ok", "fail", "ok"], "kind": ["a", "b"]}),
+                encoding="utf-8",
+            )
+
+            buf = io.StringIO()
+            with patch.object(
+                sys,
+                "argv",
+                ["json_to_schema.py", "-i", str(input_path), "--infer-enum", "status"],
+            ):
+                with redirect_stdout(buf):
+                    json_to_schema.main()
+
+            output = json.loads(buf.getvalue())
+            self.assertEqual(output["properties"]["status"]["items"]["enum"], ["ok", "fail"])
+            self.assertNotIn("enum", output["properties"]["kind"]["items"])
+
+    def test_main_infer_all_bounds(self):
+        with TemporaryDirectory() as tmpdir:
+            input_path = Path(tmpdir) / "input.json"
+            input_path.write_text(json.dumps({"name": "abc", "scores": [1, 3]}), encoding="utf-8")
+
+            buf = io.StringIO()
+            with patch.object(
+                sys,
+                "argv",
+                ["json_to_schema.py", "-i", str(input_path), "--infer-all-bounds"],
             ):
                 with redirect_stdout(buf):
                     json_to_schema.main()
@@ -448,7 +510,7 @@ class TestMain(unittest.TestCase):
             self.assertEqual(output["properties"]["scores"]["items"]["minimum"], 1)
             self.assertEqual(output["properties"]["scores"]["items"]["maximum"], 3)
 
-    def test_main_infer_enum(self):
+    def test_main_infer_all_enum(self):
         with TemporaryDirectory() as tmpdir:
             input_path = Path(tmpdir) / "input.json"
             input_path.write_text(json.dumps({"status": ["ok", "fail", "ok"]}), encoding="utf-8")
@@ -457,7 +519,7 @@ class TestMain(unittest.TestCase):
             with patch.object(
                 sys,
                 "argv",
-                ["json_to_schema.py", "-i", str(input_path), "--infer-enum"],
+                ["json_to_schema.py", "-i", str(input_path), "--infer-all-enum"],
             ):
                 with redirect_stdout(buf):
                     json_to_schema.main()

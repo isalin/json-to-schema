@@ -15,7 +15,7 @@ import argparse
 import json
 import sys
 from copy import deepcopy
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 
 SCHEMA_DRAFT = "https://json-schema.org/draft/2020-12/schema"
@@ -176,14 +176,37 @@ def parse_bool_flag(value: str) -> bool:
     raise argparse.ArgumentTypeError("must be one of: true, false")
 
 
+def parse_field_list(values: Sequence[str]) -> Set[str]:
+    fields: Set[str] = set()
+    for raw in values:
+        for part in raw.split(","):
+            name = part.strip()
+            if name:
+                fields.add(name)
+    return fields
+
+
+def should_infer_for_field(
+    field_name: Optional[str], fields: Set[str], infer_all: bool
+) -> bool:
+    return infer_all or (field_name is not None and field_name in fields)
+
+
 def infer_schema(
     value: Any,
     *,
     additional_properties: bool = False,
-    infer_bounds: bool = False,
-    infer_enum: bool = False,
+    infer_bounds_fields: Optional[Set[str]] = None,
+    infer_enum_fields: Optional[Set[str]] = None,
+    infer_all_bounds: bool = False,
+    infer_all_enum: bool = False,
+    field_name: Optional[str] = None,
 ) -> Dict[str, Any]:
     t = json_type(value)
+    bounds_fields = infer_bounds_fields or set()
+    enum_fields = infer_enum_fields or set()
+    infer_bounds_here = should_infer_for_field(field_name, bounds_fields, infer_all_bounds)
+    infer_enum_here = should_infer_for_field(field_name, enum_fields, infer_all_enum)
 
     # Handle nullability by including "null" in type if needed in merges;
     # at leaf, just set type = "null"
@@ -194,8 +217,11 @@ def infer_schema(
             props[k] = infer_schema(
                 v,
                 additional_properties=additional_properties,
-                infer_bounds=infer_bounds,
-                infer_enum=infer_enum,
+                infer_bounds_fields=bounds_fields,
+                infer_enum_fields=enum_fields,
+                infer_all_bounds=infer_all_bounds,
+                infer_all_enum=infer_all_enum,
+                field_name=k,
             )
             required.append(k)
 
@@ -210,7 +236,7 @@ def infer_schema(
         if not value:
             # Empty array: we don't know item type
             schema: Dict[str, Any] = {"type": "array", "items": {}}
-            if infer_bounds:
+            if infer_bounds_here:
                 schema["minItems"] = 0
                 schema["maxItems"] = 0
             return schema
@@ -219,8 +245,11 @@ def infer_schema(
         item_schema = infer_schema(
             value[0],
             additional_properties=additional_properties,
-            infer_bounds=infer_bounds,
-            infer_enum=infer_enum,
+            infer_bounds_fields=bounds_fields,
+            infer_enum_fields=enum_fields,
+            infer_all_bounds=infer_all_bounds,
+            infer_all_enum=infer_all_enum,
+            field_name=field_name,
         )
         for item in value[1:]:
             item_schema = merge_schemas(
@@ -228,20 +257,23 @@ def infer_schema(
                 infer_schema(
                     item,
                     additional_properties=additional_properties,
-                    infer_bounds=infer_bounds,
-                    infer_enum=infer_enum,
+                    infer_bounds_fields=bounds_fields,
+                    infer_enum_fields=enum_fields,
+                    infer_all_bounds=infer_all_bounds,
+                    infer_all_enum=infer_all_enum,
+                    field_name=field_name,
                 ),
             )
 
         schema = {"type": "array", "items": item_schema}
-        if infer_bounds:
+        if infer_bounds_here:
             schema["minItems"] = len(value)
             schema["maxItems"] = len(value)
         return schema
 
     # Scalars
     schema = {"type": t}
-    if infer_bounds:
+    if infer_bounds_here:
         if t in ("integer", "number"):
             schema["minimum"] = value
             schema["maximum"] = value
@@ -249,7 +281,7 @@ def infer_schema(
             value_len = len(value)
             schema["minLength"] = value_len
             schema["maxLength"] = value_len
-    if infer_enum and t in ("null", "boolean", "integer", "number", "string"):
+    if infer_enum_here and t in ("null", "boolean", "integer", "number", "string"):
         schema["enum"] = [value]
     return schema
 
@@ -272,13 +304,27 @@ def main() -> None:
     )
     parser.add_argument(
         "--infer-bounds",
-        action="store_true",
-        help="Infer min/max constraints (minimum/maximum, minLength/maxLength, minItems/maxItems)",
+        nargs="+",
+        default=[],
+        metavar="FIELD",
+        help="Infer min/max constraints only for the listed field names",
     )
     parser.add_argument(
         "--infer-enum",
+        nargs="+",
+        default=[],
+        metavar="FIELD",
+        help="Infer enum constraints only for the listed field names",
+    )
+    parser.add_argument(
+        "--infer-all-bounds",
         action="store_true",
-        help="Infer enum constraints from observed scalar values",
+        help="Infer min/max constraints for all applicable fields",
+    )
+    parser.add_argument(
+        "--infer-all-enum",
+        action="store_true",
+        help="Infer enum constraints for all applicable fields",
     )
     args = parser.parse_args()
 
@@ -297,13 +343,18 @@ def main() -> None:
             f"Invalid JSON in {source}: {exc.msg} (line {exc.lineno}, column {exc.colno})"
         )
 
+    infer_bounds_fields = parse_field_list(args.infer_bounds)
+    infer_enum_fields = parse_field_list(args.infer_enum)
+
     schema = {
         "$schema": SCHEMA_DRAFT,
         **infer_schema(
             data,
             additional_properties=args.additional_properties,
-            infer_bounds=args.infer_bounds,
-            infer_enum=args.infer_enum,
+            infer_bounds_fields=infer_bounds_fields,
+            infer_enum_fields=infer_enum_fields,
+            infer_all_bounds=args.infer_all_bounds,
+            infer_all_enum=args.infer_all_enum,
         ),
     }
 

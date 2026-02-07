@@ -14,8 +14,9 @@ It outputs schemas compatible with [JSON Schema draft 2020-12](https://json-sche
 - Infers types for objects, arrays, and scalars.
 - Merges array item types across elements.
 - Marks object properties as required based on the input instance.
-- Optionally infers bounds with `--infer-bounds`.
-- Optionally infers enum values with `--infer-enum`.
+- Optionally infers bounds for selected fields with `--infer-bounds`.
+- Optionally infers enum values for selected fields with `--infer-enum`.
+- Supports global inference with `--infer-all-bounds` and `--infer-all-enum`.
 - Emits schemas compliant with JSON Schema draft 2020-12.
 
 ## Requirements
@@ -51,13 +52,25 @@ json-to-schema -i input.json --minify
 Infer bounds:
 
 ```bash
-json-to-schema -i input.json --infer-bounds
+json-to-schema -i input.json --infer-bounds age price tags
 ```
 
 Infer enum values:
 
 ```bash
-json-to-schema -i input.json --infer-enum
+json-to-schema -i input.json --infer-enum status type
+```
+
+Infer bounds for all applicable fields:
+
+```bash
+json-to-schema -i input.json --infer-all-bounds
+```
+
+Infer enum values for all applicable fields:
+
+```bash
+json-to-schema -i input.json --infer-all-enum
 ```
 
 You can also pipe JSON directly into stdin:
