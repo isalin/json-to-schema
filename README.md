@@ -17,6 +17,8 @@ It outputs schemas compatible with [JSON Schema draft 2020-12](https://json-sche
 - Optionally infers bounds for selected fields with `--infer-bounds`.
 - Optionally infers enum values for selected fields with `--infer-enum`.
 - Supports global inference with `--infer-all-bounds` and `--infer-all-enum`.
+- Sets root schema metadata with `--schema-id`, `--schema-title`, and `--schema-description`.
+- Sets field-level metadata with `--field-title` and `--field-description`.
 - Validates input JSON against a provided schema file with `--validate`.
 - Emits schemas compliant with JSON Schema draft 2020-12.
 
@@ -72,6 +74,23 @@ Infer enum values for all applicable fields:
 
 ```bash
 json-to-schema -i input.json --infer-all-enum
+```
+
+Set root schema metadata:
+
+```bash
+json-to-schema -i input.json \
+  --schema-id https://example.com/schemas/product \
+  --schema-title "Product Schema" \
+  --schema-description "Schema for product payloads"
+```
+
+Set field-level metadata (dot paths, with `[]` for array items):
+
+```bash
+json-to-schema -i input.json \
+  --field-title user.name="Full name" \
+  --field-description tags[]="Tag value"
 ```
 
 Validate a payload file against an existing schema:

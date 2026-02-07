@@ -197,6 +197,44 @@ class TestInferSchema(unittest.TestCase):
         self.assertNotIn("enum", schema["properties"]["kind"]["items"])
 
 
+class TestFieldMetadataHelpers(unittest.TestCase):
+    def test_resolve_field_schema_path_supports_nested_and_array_items(self):
+        schema = {
+            "type": "object",
+            "properties": {
+                "user": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "tags": {"type": "array", "items": {"type": "string"}},
+                    },
+                }
+            },
+        }
+        self.assertEqual(
+            json_to_schema.resolve_field_schema_path(schema, "user.name"),
+            {"type": "string"},
+        )
+        self.assertEqual(
+            json_to_schema.resolve_field_schema_path(schema, "user.tags[]"),
+            {"type": "string"},
+        )
+
+    def test_apply_field_metadata_updates_targeted_field(self):
+        schema = {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+            },
+        }
+        json_to_schema.apply_field_metadata(
+            schema,
+            {"name": "Display name"},
+            metadata_key="description",
+        )
+        self.assertEqual(schema["properties"]["name"]["description"], "Display name")
+
+
 class TestValidateAgainstSchema(unittest.TestCase):
     def test_validate_against_schema_passes(self):
         schema = {
@@ -572,6 +610,103 @@ class TestMain(unittest.TestCase):
             output = json.loads(buf.getvalue())
             self.assertEqual(output["properties"]["status"]["items"]["enum"], ["ok", "fail"])
 
+    def test_main_applies_root_schema_metadata_flags(self):
+        with TemporaryDirectory() as tmpdir:
+            input_path = Path(tmpdir) / "input.json"
+            input_path.write_text(json.dumps({"name": "Widget"}), encoding="utf-8")
+
+            buf = io.StringIO()
+            with patch.object(
+                sys,
+                "argv",
+                [
+                    "json_to_schema.py",
+                    "-i",
+                    str(input_path),
+                    "--schema-id",
+                    "https://example.com/schemas/widget",
+                    "--schema-title",
+                    "Widget Schema",
+                    "--schema-description",
+                    "Schema for widget payloads",
+                ],
+            ):
+                with redirect_stdout(buf):
+                    json_to_schema.main()
+
+            output = json.loads(buf.getvalue())
+            self.assertEqual(output["$id"], "https://example.com/schemas/widget")
+            self.assertEqual(output["title"], "Widget Schema")
+            self.assertEqual(output["description"], "Schema for widget payloads")
+
+    def test_main_applies_field_metadata_flags(self):
+        with TemporaryDirectory() as tmpdir:
+            input_path = Path(tmpdir) / "input.json"
+            input_path.write_text(
+                json.dumps(
+                    {
+                        "user": {"name": "Ada"},
+                        "tags": ["one", "two"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            buf = io.StringIO()
+            with patch.object(
+                sys,
+                "argv",
+                [
+                    "json_to_schema.py",
+                    "-i",
+                    str(input_path),
+                    "--field-title",
+                    "user.name=Full name",
+                    "--field-description",
+                    "tags[]=Tag value",
+                ],
+            ):
+                with redirect_stdout(buf):
+                    json_to_schema.main()
+
+            output = json.loads(buf.getvalue())
+            self.assertEqual(output["properties"]["user"]["properties"]["name"]["title"], "Full name")
+            self.assertEqual(output["properties"]["tags"]["items"]["description"], "Tag value")
+
+    def test_main_rejects_invalid_field_metadata_assignment(self):
+        with TemporaryDirectory() as tmpdir:
+            input_path = Path(tmpdir) / "input.json"
+            input_path.write_text(json.dumps({"name": "Ada"}), encoding="utf-8")
+
+            err = io.StringIO()
+            with patch.object(
+                sys,
+                "argv",
+                ["json_to_schema.py", "-i", str(input_path), "--field-title", "name"],
+            ):
+                with self.assertRaises(SystemExit) as cm:
+                    with redirect_stderr(err):
+                        json_to_schema.main()
+            self.assertEqual(cm.exception.code, 2)
+            self.assertIn("must be in FIELD=VALUE format", err.getvalue())
+
+    def test_main_rejects_unknown_field_metadata_path(self):
+        with TemporaryDirectory() as tmpdir:
+            input_path = Path(tmpdir) / "input.json"
+            input_path.write_text(json.dumps({"name": "Ada"}), encoding="utf-8")
+
+            err = io.StringIO()
+            with patch.object(
+                sys,
+                "argv",
+                ["json_to_schema.py", "-i", str(input_path), "--field-description", "user.email=Email"],
+            ):
+                with self.assertRaises(SystemExit) as cm:
+                    with redirect_stderr(err):
+                        json_to_schema.main()
+            self.assertEqual(cm.exception.code, 2)
+            self.assertIn("was not found in inferred schema", err.getvalue())
+
     def test_main_validate_success(self):
         with TemporaryDirectory() as tmpdir:
             input_path = Path(tmpdir) / "payload.json"
@@ -672,6 +807,36 @@ class TestMain(unittest.TestCase):
                         json_to_schema.main()
             self.assertEqual(cm.exception.code, 2)
             self.assertIn("--output cannot be used with --validate", err.getvalue())
+
+    def test_main_validate_rejects_metadata_flags(self):
+        with TemporaryDirectory() as tmpdir:
+            input_path = Path(tmpdir) / "payload.json"
+            schema_path = Path(tmpdir) / "schema.json"
+            input_path.write_text(json.dumps({"name": "Lin"}), encoding="utf-8")
+            schema_path.write_text(
+                json.dumps({"type": "object", "properties": {"name": {"type": "string"}}}),
+                encoding="utf-8",
+            )
+
+            err = io.StringIO()
+            with patch.object(
+                sys,
+                "argv",
+                [
+                    "json_to_schema.py",
+                    "-i",
+                    str(input_path),
+                    "--validate",
+                    str(schema_path),
+                    "--field-title",
+                    "name=Display name",
+                ],
+            ):
+                with self.assertRaises(SystemExit) as cm:
+                    with redirect_stderr(err):
+                        json_to_schema.main()
+            self.assertEqual(cm.exception.code, 2)
+            self.assertIn("--field-title cannot be used with --validate", err.getvalue())
 
     def test_main_validate_reads_payload_from_stdin(self):
         with TemporaryDirectory() as tmpdir:
