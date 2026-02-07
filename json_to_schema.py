@@ -7,18 +7,23 @@ Usage:
   echo '{"a": 1}' | python json_to_schema.py
   python json_to_schema.py -o schema.json
   python json_to_schema.py --minify
+  python json_to_schema.py -i payload.json --validate schema.json
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import math
+import re
 import sys
 from copy import deepcopy
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 
 SCHEMA_DRAFT = "https://json-schema.org/draft/2020-12/schema"
+IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+VALID_JSON_TYPES = {"null", "boolean", "integer", "number", "string", "array", "object"}
 
 
 def json_type(value: Any) -> str:
@@ -286,10 +291,321 @@ def infer_schema(
     return schema
 
 
+def _type_matches(value: Any, expected: str) -> bool:
+    if expected == "null":
+        return value is None
+    if expected == "boolean":
+        return isinstance(value, bool)
+    if expected == "integer":
+        return isinstance(value, int) and not isinstance(value, bool)
+    if expected == "number":
+        return (isinstance(value, int) and not isinstance(value, bool)) or isinstance(value, float)
+    if expected == "string":
+        return isinstance(value, str)
+    if expected == "array":
+        return isinstance(value, list)
+    if expected == "object":
+        return isinstance(value, dict)
+    return False
+
+
+def _is_json_number(value: Any) -> bool:
+    return (isinstance(value, int) and not isinstance(value, bool)) or isinstance(value, float)
+
+
+def _json_path_for_key(path: str, key: str) -> str:
+    if IDENTIFIER_RE.match(key):
+        return f"{path}.{key}"
+    return f"{path}[{json.dumps(key)}]"
+
+
+def _describe_type(value: Any) -> str:
+    value_type = json_type(value)
+    if value_type == "number":
+        return "number" if math.isfinite(value) else "non-finite number"
+    return value_type
+
+
+def validate_schema_definition(schema: Any, *, path: str = "$") -> List[str]:
+    errors: List[str] = []
+
+    if isinstance(schema, bool):
+        return errors
+    if not isinstance(schema, dict):
+        return [f"{path}: schema must be an object or boolean"]
+
+    schema_type = schema.get("type")
+    if schema_type is not None:
+        type_values = [schema_type] if isinstance(schema_type, str) else schema_type
+        if not isinstance(type_values, list):
+            errors.append(f"{path}.type: must be a string or array of strings")
+        elif not type_values:
+            errors.append(f"{path}.type: array must not be empty")
+        else:
+            seen = set()
+            for idx, type_name in enumerate(type_values):
+                if not isinstance(type_name, str):
+                    errors.append(f"{path}.type[{idx}]: must be a string")
+                    continue
+                if type_name not in VALID_JSON_TYPES:
+                    errors.append(f"{path}.type[{idx}]: unsupported type {type_name!r}")
+                if type_name in seen:
+                    errors.append(f"{path}.type[{idx}]: duplicate type {type_name!r}")
+                seen.add(type_name)
+
+    any_of = schema.get("anyOf")
+    if any_of is not None:
+        if not isinstance(any_of, list):
+            errors.append(f"{path}.anyOf: must be an array")
+        elif not any_of:
+            errors.append(f"{path}.anyOf: must not be empty")
+        else:
+            for idx, candidate in enumerate(any_of):
+                errors.extend(
+                    validate_schema_definition(candidate, path=f"{path}.anyOf[{idx}]")
+                )
+
+    enum_values = schema.get("enum")
+    if enum_values is not None:
+        if not isinstance(enum_values, list):
+            errors.append(f"{path}.enum: must be an array")
+        elif not enum_values:
+            errors.append(f"{path}.enum: must not be empty")
+
+    properties = schema.get("properties")
+    if properties is not None:
+        if not isinstance(properties, dict):
+            errors.append(f"{path}.properties: must be an object")
+        else:
+            for key, value in properties.items():
+                key_path = _json_path_for_key(f"{path}.properties", key)
+                errors.extend(validate_schema_definition(value, path=key_path))
+
+    required = schema.get("required")
+    if required is not None:
+        if not isinstance(required, list):
+            errors.append(f"{path}.required: must be an array")
+        else:
+            seen_required = set()
+            for idx, field in enumerate(required):
+                if not isinstance(field, str):
+                    errors.append(f"{path}.required[{idx}]: must be a string")
+                    continue
+                if field in seen_required:
+                    errors.append(f"{path}.required[{idx}]: duplicate field {field!r}")
+                seen_required.add(field)
+
+    additional_properties = schema.get("additionalProperties")
+    if additional_properties is not None:
+        if isinstance(additional_properties, bool):
+            pass
+        elif isinstance(additional_properties, dict):
+            errors.extend(
+                validate_schema_definition(
+                    additional_properties,
+                    path=f"{path}.additionalProperties",
+                )
+            )
+        else:
+            errors.append(f"{path}.additionalProperties: must be a boolean or object")
+
+    items = schema.get("items")
+    if items is not None:
+        if isinstance(items, bool):
+            pass
+        elif isinstance(items, dict):
+            errors.extend(validate_schema_definition(items, path=f"{path}.items"))
+        else:
+            errors.append(f"{path}.items: must be a boolean or object")
+
+    for key in ("minimum", "maximum"):
+        if key in schema and not _is_json_number(schema[key]):
+            errors.append(f"{path}.{key}: must be a number")
+
+    for key in ("minLength", "maxLength", "minItems", "maxItems"):
+        if key in schema:
+            if not isinstance(schema[key], int) or isinstance(schema[key], bool):
+                errors.append(f"{path}.{key}: must be an integer")
+            elif schema[key] < 0:
+                errors.append(f"{path}.{key}: must be >= 0")
+
+    if (
+        "minimum" in schema
+        and "maximum" in schema
+        and _is_json_number(schema["minimum"])
+        and _is_json_number(schema["maximum"])
+        and schema["minimum"] > schema["maximum"]
+    ):
+        errors.append(f"{path}: minimum cannot be greater than maximum")
+
+    if (
+        "minLength" in schema
+        and "maxLength" in schema
+        and isinstance(schema["minLength"], int)
+        and isinstance(schema["maxLength"], int)
+        and not isinstance(schema["minLength"], bool)
+        and not isinstance(schema["maxLength"], bool)
+        and schema["minLength"] > schema["maxLength"]
+    ):
+        errors.append(f"{path}: minLength cannot be greater than maxLength")
+
+    if (
+        "minItems" in schema
+        and "maxItems" in schema
+        and isinstance(schema["minItems"], int)
+        and isinstance(schema["maxItems"], int)
+        and not isinstance(schema["minItems"], bool)
+        and not isinstance(schema["maxItems"], bool)
+        and schema["minItems"] > schema["maxItems"]
+    ):
+        errors.append(f"{path}: minItems cannot be greater than maxItems")
+
+    return errors
+
+
+def validate_against_schema(
+    value: Any,
+    schema: Any,
+    *,
+    path: str = "$",
+) -> List[str]:
+    if isinstance(schema, bool):
+        return [] if schema else [f"{path}: disallowed by schema (false)"]
+
+    if not isinstance(schema, dict):
+        return [f"{path}: invalid schema encountered during validation"]
+
+    errors: List[str] = []
+
+    any_of = schema.get("anyOf")
+    if isinstance(any_of, list) and any_of:
+        branches = [validate_against_schema(value, candidate, path=path) for candidate in any_of]
+        if all(branch_errors for branch_errors in branches):
+            summary = "; ".join(branch[0] for branch in branches if branch) or "no anyOf branch matched"
+            errors.append(f"{path}: does not match any allowed schema ({summary})")
+            return errors
+
+    schema_type = schema.get("type")
+    if schema_type is not None:
+        expected_types = [schema_type] if isinstance(schema_type, str) else list(schema_type)
+        if expected_types and not any(_type_matches(value, expected) for expected in expected_types):
+            expected_text = ", ".join(expected_types)
+            errors.append(
+                f"{path}: expected type {expected_text}, got {_describe_type(value)}"
+            )
+            return errors
+
+    if "enum" in schema and value not in schema["enum"]:
+        errors.append(f"{path}: value {value!r} is not in enum {schema['enum']!r}")
+
+    if isinstance(value, dict):
+        required_fields = schema.get("required", [])
+        for field in required_fields:
+            if field not in value:
+                errors.append(f"{path}: missing required property {field!r}")
+
+        properties = schema.get("properties", {})
+        for field_name, field_value in value.items():
+            if field_name in properties:
+                errors.extend(
+                    validate_against_schema(
+                        field_value,
+                        properties[field_name],
+                        path=_json_path_for_key(path, field_name),
+                    )
+                )
+
+        additional_properties = schema.get("additionalProperties", True)
+        extra_fields = sorted(field for field in value if field not in properties)
+        if additional_properties is False:
+            for field in extra_fields:
+                errors.append(f"{path}: additional property {field!r} is not allowed")
+        elif isinstance(additional_properties, dict):
+            for field in extra_fields:
+                errors.extend(
+                    validate_against_schema(
+                        value[field],
+                        additional_properties,
+                        path=_json_path_for_key(path, field),
+                    )
+                )
+
+    if isinstance(value, list):
+        if "minItems" in schema and len(value) < schema["minItems"]:
+            errors.append(
+                f"{path}: expected at least {schema['minItems']} items, got {len(value)}"
+            )
+        if "maxItems" in schema and len(value) > schema["maxItems"]:
+            errors.append(
+                f"{path}: expected at most {schema['maxItems']} items, got {len(value)}"
+            )
+
+        items_schema = schema.get("items")
+        if isinstance(items_schema, bool) and not items_schema and value:
+            errors.append(f"{path}: items are not allowed by schema")
+        elif isinstance(items_schema, dict):
+            for index, item in enumerate(value):
+                errors.extend(
+                    validate_against_schema(item, items_schema, path=f"{path}[{index}]")
+                )
+
+    if isinstance(value, str):
+        if "minLength" in schema and len(value) < schema["minLength"]:
+            errors.append(
+                f"{path}: expected length >= {schema['minLength']}, got {len(value)}"
+            )
+        if "maxLength" in schema and len(value) > schema["maxLength"]:
+            errors.append(
+                f"{path}: expected length <= {schema['maxLength']}, got {len(value)}"
+            )
+
+    if _is_json_number(value):
+        if "minimum" in schema and value < schema["minimum"]:
+            errors.append(f"{path}: expected value >= {schema['minimum']}, got {value}")
+        if "maximum" in schema and value > schema["maximum"]:
+            errors.append(f"{path}: expected value <= {schema['maximum']}, got {value}")
+
+    return errors
+
+
+def load_input_json(parser: argparse.ArgumentParser, input_path: str) -> Any:
+    try:
+        if input_path == "file.json" and not sys.stdin.isatty():
+            return json.load(sys.stdin)
+        with open(input_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        parser.error(f"Input file not found: {input_path}")
+    except json.JSONDecodeError as exc:
+        source = "stdin" if input_path == "file.json" and not sys.stdin.isatty() else input_path
+        parser.error(
+            f"Invalid JSON in {source}: {exc.msg} (line {exc.lineno}, column {exc.colno})"
+        )
+
+
+def load_schema_json(parser: argparse.ArgumentParser, schema_path: str) -> Any:
+    try:
+        with open(schema_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        parser.error(f"Schema file not found: {schema_path}")
+    except json.JSONDecodeError as exc:
+        parser.error(
+            f"Invalid JSON in schema file {schema_path}: {exc.msg} "
+            f"(line {exc.lineno}, column {exc.colno})"
+        )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Infer JSON Schema from file.json")
     parser.add_argument("-i", "--input", default="file.json", help="Input JSON file (default: file.json)")
     parser.add_argument("-o", "--output", default=None, help="Output schema file (default: stdout)")
+    parser.add_argument(
+        "--validate",
+        default=None,
+        metavar="SCHEMA_FILE",
+        help="Validate input JSON (-i or stdin) against a schema file",
+    )
     parser.add_argument(
         "--minify",
         action="store_true",
@@ -328,20 +644,49 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    # If input is omitted and stdin is piped, read JSON from stdin.
-    try:
-        if args.input == "file.json" and not sys.stdin.isatty():
-            data = json.load(sys.stdin)
-        else:
-            with open(args.input, "r", encoding="utf-8") as f:
-                data = json.load(f)
-    except FileNotFoundError:
-        parser.error(f"Input file not found: {args.input}")
-    except json.JSONDecodeError as exc:
+    if args.validate:
+        if args.output:
+            parser.error("--output cannot be used with --validate")
+        if args.minify:
+            parser.error("--minify cannot be used with --validate")
+        if args.additional_properties is True:
+            parser.error("--additional-properties cannot be used with --validate")
+        if args.infer_bounds:
+            parser.error("--infer-bounds cannot be used with --validate")
+        if args.infer_enum:
+            parser.error("--infer-enum cannot be used with --validate")
+        if args.infer_all_bounds:
+            parser.error("--infer-all-bounds cannot be used with --validate")
+        if args.infer_all_enum:
+            parser.error("--infer-all-enum cannot be used with --validate")
+
+        schema = load_schema_json(parser, args.validate)
+        schema_errors = validate_schema_definition(schema)
+        if schema_errors:
+            print(
+                f"Invalid schema in {args.validate}:",
+                file=sys.stderr,
+            )
+            for error in schema_errors:
+                print(f"- {error}", file=sys.stderr)
+            raise SystemExit(1)
+
+        payload = load_input_json(parser, args.input)
+        validation_errors = validate_against_schema(payload, schema)
+        if validation_errors:
+            print(
+                f"Validation failed: input data does not match schema {args.validate}.",
+                file=sys.stderr,
+            )
+            for error in validation_errors:
+                print(f"- {error}", file=sys.stderr)
+            raise SystemExit(1)
+
         source = "stdin" if args.input == "file.json" and not sys.stdin.isatty() else args.input
-        parser.error(
-            f"Invalid JSON in {source}: {exc.msg} (line {exc.lineno}, column {exc.colno})"
-        )
+        print(f"Validation passed: {source} matches schema {args.validate}.")
+        return
+
+    data = load_input_json(parser, args.input)
 
     infer_bounds_fields = parse_field_list(args.infer_bounds)
     infer_enum_fields = parse_field_list(args.infer_enum)
@@ -366,7 +711,8 @@ def main() -> None:
     if args.output:
         with open(args.output, "w", encoding="utf-8") as f:
             f.write(text + "\n")
-    else:
+
+    if not args.output:
         print(text)
 
 

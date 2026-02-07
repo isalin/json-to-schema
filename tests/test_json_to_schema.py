@@ -197,6 +197,51 @@ class TestInferSchema(unittest.TestCase):
         self.assertNotIn("enum", schema["properties"]["kind"]["items"])
 
 
+class TestValidateAgainstSchema(unittest.TestCase):
+    def test_validate_against_schema_passes(self):
+        schema = {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "minLength": 2},
+                "age": {"type": "integer", "minimum": 0},
+            },
+            "required": ["name", "age"],
+            "additionalProperties": False,
+        }
+        payload = {"name": "Ada", "age": 22}
+        self.assertEqual(json_to_schema.validate_against_schema(payload, schema), [])
+
+    def test_validate_against_schema_reports_failures(self):
+        schema = {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "minLength": 3},
+                "age": {"type": "integer", "minimum": 18},
+            },
+            "required": ["name", "age"],
+            "additionalProperties": False,
+        }
+        payload = {"name": "Al", "age": 16, "extra": True}
+        errors = json_to_schema.validate_against_schema(payload, schema)
+        self.assertTrue(any("$.name: expected length >= 3" in error for error in errors))
+        self.assertTrue(any("$.age: expected value >= 18" in error for error in errors))
+        self.assertTrue(any("additional property 'extra' is not allowed" in error for error in errors))
+
+
+class TestValidateSchemaDefinition(unittest.TestCase):
+    def test_validate_schema_definition_accepts_boolean_schema(self):
+        self.assertEqual(json_to_schema.validate_schema_definition(True), [])
+        self.assertEqual(json_to_schema.validate_schema_definition(False), [])
+
+    def test_validate_schema_definition_rejects_invalid_type(self):
+        errors = json_to_schema.validate_schema_definition({"type": "wat"})
+        self.assertTrue(any("unsupported type 'wat'" in error for error in errors))
+
+    def test_validate_schema_definition_rejects_non_object_schema(self):
+        errors = json_to_schema.validate_schema_definition("bad")
+        self.assertEqual(errors, ["$: schema must be an object or boolean"])
+
+
 class TestMain(unittest.TestCase):
     def test_main_reads_piped_stdin_when_input_not_specified(self):
         buf = io.StringIO()
@@ -526,6 +571,180 @@ class TestMain(unittest.TestCase):
 
             output = json.loads(buf.getvalue())
             self.assertEqual(output["properties"]["status"]["items"]["enum"], ["ok", "fail"])
+
+    def test_main_validate_success(self):
+        with TemporaryDirectory() as tmpdir:
+            input_path = Path(tmpdir) / "payload.json"
+            schema_path = Path(tmpdir) / "schema.json"
+            input_path.write_text(json.dumps({"name": "Lin", "age": 5}), encoding="utf-8")
+            schema_path.write_text(
+                json.dumps(
+                    {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "age": {"type": "integer"},
+                        },
+                        "required": ["name", "age"],
+                        "additionalProperties": False,
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            out = io.StringIO()
+            err = io.StringIO()
+            with patch.object(
+                sys,
+                "argv",
+                ["json_to_schema.py", "-i", str(input_path), "--validate", str(schema_path)],
+            ):
+                with redirect_stdout(out), redirect_stderr(err):
+                    json_to_schema.main()
+
+            self.assertIn("Validation passed:", out.getvalue())
+            self.assertIn(str(input_path), out.getvalue())
+            self.assertIn(str(schema_path), out.getvalue())
+            self.assertEqual(err.getvalue(), "")
+
+    def test_main_validate_failure(self):
+        with TemporaryDirectory() as tmpdir:
+            input_path = Path(tmpdir) / "payload.json"
+            schema_path = Path(tmpdir) / "schema.json"
+            input_path.write_text(json.dumps({"name": "Lin", "age": "bad"}), encoding="utf-8")
+            schema_path.write_text(
+                json.dumps(
+                    {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "age": {"type": "integer"},
+                        },
+                        "required": ["name", "age"],
+                        "additionalProperties": False,
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            out = io.StringIO()
+            err = io.StringIO()
+            with patch.object(
+                sys,
+                "argv",
+                ["json_to_schema.py", "-i", str(input_path), "--validate", str(schema_path)],
+            ):
+                with self.assertRaises(SystemExit) as cm:
+                    with redirect_stdout(out), redirect_stderr(err):
+                        json_to_schema.main()
+
+            self.assertEqual(cm.exception.code, 1)
+            self.assertIn("Validation failed:", err.getvalue())
+            self.assertIn("$.age: expected type integer, got string", err.getvalue())
+
+    def test_main_validate_rejects_generation_output_flags(self):
+        with TemporaryDirectory() as tmpdir:
+            input_path = Path(tmpdir) / "payload.json"
+            schema_path = Path(tmpdir) / "schema.json"
+            output_path = Path(tmpdir) / "out-schema.json"
+            input_path.write_text(json.dumps({"name": "Lin", "age": 5}), encoding="utf-8")
+            schema_path.write_text(
+                json.dumps({"type": "object", "properties": {"name": {"type": "string"}}}),
+                encoding="utf-8",
+            )
+
+            err = io.StringIO()
+            with patch.object(
+                sys,
+                "argv",
+                [
+                    "json_to_schema.py",
+                    "-i",
+                    str(input_path),
+                    "-o",
+                    str(output_path),
+                    "--validate",
+                    str(schema_path),
+                ],
+            ):
+                with self.assertRaises(SystemExit) as cm:
+                    with redirect_stderr(err):
+                        json_to_schema.main()
+            self.assertEqual(cm.exception.code, 2)
+            self.assertIn("--output cannot be used with --validate", err.getvalue())
+
+    def test_main_validate_reads_payload_from_stdin(self):
+        with TemporaryDirectory() as tmpdir:
+            schema_path = Path(tmpdir) / "schema.json"
+            schema_path.write_text(
+                json.dumps({"type": "object", "properties": {"a": {"type": "integer"}}}),
+                encoding="utf-8",
+            )
+
+            stdin = FakeStdin(json.dumps({"a": 1}), is_tty=False)
+            out = io.StringIO()
+            with patch.object(sys, "argv", ["json_to_schema.py", "--validate", str(schema_path)]):
+                with patch.object(sys, "stdin", stdin):
+                    with redirect_stdout(out):
+                        json_to_schema.main()
+
+            self.assertIn("Validation passed: stdin matches schema", out.getvalue())
+
+    def test_main_validate_missing_schema_file_prints_friendly_error(self):
+        with TemporaryDirectory() as tmpdir:
+            input_path = Path(tmpdir) / "payload.json"
+            input_path.write_text(json.dumps({"a": 1}), encoding="utf-8")
+
+            err = io.StringIO()
+            with patch.object(
+                sys,
+                "argv",
+                ["json_to_schema.py", "-i", str(input_path), "--validate", str(Path(tmpdir) / "missing-schema.json")],
+            ):
+                with self.assertRaises(SystemExit) as cm:
+                    with redirect_stderr(err):
+                        json_to_schema.main()
+            self.assertEqual(cm.exception.code, 2)
+            self.assertIn("Schema file not found:", err.getvalue())
+
+    def test_main_validate_invalid_schema_json_prints_friendly_error(self):
+        with TemporaryDirectory() as tmpdir:
+            input_path = Path(tmpdir) / "payload.json"
+            schema_path = Path(tmpdir) / "schema.json"
+            input_path.write_text(json.dumps({"a": 1}), encoding="utf-8")
+            schema_path.write_text("{bad-json", encoding="utf-8")
+
+            err = io.StringIO()
+            with patch.object(
+                sys,
+                "argv",
+                ["json_to_schema.py", "-i", str(input_path), "--validate", str(schema_path)],
+            ):
+                with self.assertRaises(SystemExit) as cm:
+                    with redirect_stderr(err):
+                        json_to_schema.main()
+            self.assertEqual(cm.exception.code, 2)
+            self.assertIn("Invalid JSON in schema file", err.getvalue())
+
+    def test_main_validate_invalid_schema_definition(self):
+        with TemporaryDirectory() as tmpdir:
+            input_path = Path(tmpdir) / "payload.json"
+            schema_path = Path(tmpdir) / "schema.json"
+            input_path.write_text(json.dumps({"a": 1}), encoding="utf-8")
+            schema_path.write_text(json.dumps({"type": "wat"}), encoding="utf-8")
+
+            err = io.StringIO()
+            with patch.object(
+                sys,
+                "argv",
+                ["json_to_schema.py", "-i", str(input_path), "--validate", str(schema_path)],
+            ):
+                with self.assertRaises(SystemExit) as cm:
+                    with redirect_stderr(err):
+                        json_to_schema.main()
+            self.assertEqual(cm.exception.code, 1)
+            self.assertIn(f"Invalid schema in {schema_path}:", err.getvalue())
+            self.assertIn("unsupported type 'wat'", err.getvalue())
 
 
 class TestFixtureDrivenSchemaInference(unittest.TestCase):
