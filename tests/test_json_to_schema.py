@@ -130,6 +130,18 @@ class TestInferSchema(unittest.TestCase):
         schema = json_to_schema.infer_schema(None)
         self.assertEqual(schema, {"type": "null"})
 
+    def test_infer_schema_object_additional_properties_true(self):
+        data = {"a": {"b": 1}}
+        schema = json_to_schema.infer_schema(data, additional_properties=True)
+        self.assertTrue(schema["additionalProperties"])
+        self.assertTrue(schema["properties"]["a"]["additionalProperties"])
+
+    def test_infer_schema_object_additional_properties_false(self):
+        data = {"a": {"b": 1}}
+        schema = json_to_schema.infer_schema(data, additional_properties=False)
+        self.assertFalse(schema["additionalProperties"])
+        self.assertFalse(schema["properties"]["a"]["additionalProperties"])
+
 
 class TestMain(unittest.TestCase):
     def test_main_reads_piped_stdin_when_input_not_specified(self):
@@ -307,6 +319,69 @@ class TestMain(unittest.TestCase):
         with patch.object(sys, "argv", ["json_to_schema.py"]):
             with patch.object(sys, "stdin", stdin):
                 with self.assertRaises(json.JSONDecodeError):
+                    json_to_schema.main()
+
+    def test_main_additional_properties_defaults_to_false(self):
+        with TemporaryDirectory() as tmpdir:
+            input_path = Path(tmpdir) / "input.json"
+            input_path.write_text(json.dumps({"obj": {"x": 1}}), encoding="utf-8")
+
+            buf = io.StringIO()
+            with patch.object(sys, "argv", ["json_to_schema.py", "-i", str(input_path)]):
+                with redirect_stdout(buf):
+                    json_to_schema.main()
+
+            output = json.loads(buf.getvalue())
+            self.assertFalse(output["additionalProperties"])
+            self.assertFalse(output["properties"]["obj"]["additionalProperties"])
+
+    def test_main_additional_properties_true(self):
+        with TemporaryDirectory() as tmpdir:
+            input_path = Path(tmpdir) / "input.json"
+            input_path.write_text(json.dumps({"obj": {"x": 1}}), encoding="utf-8")
+
+            buf = io.StringIO()
+            with patch.object(
+                sys,
+                "argv",
+                ["json_to_schema.py", "-i", str(input_path), "--additional-properties", "true"],
+            ):
+                with redirect_stdout(buf):
+                    json_to_schema.main()
+
+            output = json.loads(buf.getvalue())
+            self.assertTrue(output["additionalProperties"])
+            self.assertTrue(output["properties"]["obj"]["additionalProperties"])
+
+    def test_main_additional_properties_false(self):
+        with TemporaryDirectory() as tmpdir:
+            input_path = Path(tmpdir) / "input.json"
+            input_path.write_text(json.dumps({"obj": {"x": 1}}), encoding="utf-8")
+
+            buf = io.StringIO()
+            with patch.object(
+                sys,
+                "argv",
+                ["json_to_schema.py", "-i", str(input_path), "--additional-properties", "false"],
+            ):
+                with redirect_stdout(buf):
+                    json_to_schema.main()
+
+            output = json.loads(buf.getvalue())
+            self.assertFalse(output["additionalProperties"])
+            self.assertFalse(output["properties"]["obj"]["additionalProperties"])
+
+    def test_main_additional_properties_invalid_value_raises(self):
+        with TemporaryDirectory() as tmpdir:
+            input_path = Path(tmpdir) / "input.json"
+            input_path.write_text(json.dumps({"a": 1}), encoding="utf-8")
+
+            with patch.object(
+                sys,
+                "argv",
+                ["json_to_schema.py", "-i", str(input_path), "--additional-properties", "maybe"],
+            ):
+                with self.assertRaises(SystemExit):
                     json_to_schema.main()
 
 

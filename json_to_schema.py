@@ -154,7 +154,16 @@ def merge_schemas(a: Dict[str, Any], b: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
-def infer_schema(value: Any) -> Dict[str, Any]:
+def parse_bool_flag(value: str) -> bool:
+    parsed = value.strip().lower()
+    if parsed == "true":
+        return True
+    if parsed == "false":
+        return False
+    raise argparse.ArgumentTypeError("must be one of: true, false")
+
+
+def infer_schema(value: Any, *, additional_properties: bool = False) -> Dict[str, Any]:
     t = json_type(value)
 
     # Handle nullability by including "null" in type if needed in merges;
@@ -163,15 +172,14 @@ def infer_schema(value: Any) -> Dict[str, Any]:
         props: Dict[str, Any] = {}
         required: List[str] = []
         for k, v in value.items():
-            props[k] = infer_schema(v)
+            props[k] = infer_schema(v, additional_properties=additional_properties)
             required.append(k)
 
         return {
             "type": "object",
             "properties": props,
             "required": sorted(required),
-            # This is an opinionated default; change to True if you want permissive schemas.
-            "additionalProperties": False,
+            "additionalProperties": additional_properties,
         }
 
     if t == "array":
@@ -180,9 +188,12 @@ def infer_schema(value: Any) -> Dict[str, Any]:
             return {"type": "array", "items": {}}
 
         # Infer schema for each element and merge
-        item_schema = infer_schema(value[0])
+        item_schema = infer_schema(value[0], additional_properties=additional_properties)
         for item in value[1:]:
-            item_schema = merge_schemas(item_schema, infer_schema(item))
+            item_schema = merge_schemas(
+                item_schema,
+                infer_schema(item, additional_properties=additional_properties),
+            )
 
         return {"type": "array", "items": item_schema}
 
@@ -199,6 +210,13 @@ def main() -> None:
         action="store_true",
         help="Print compact/minified JSON output",
     )
+    parser.add_argument(
+        "--additional-properties",
+        default=False,
+        type=parse_bool_flag,
+        metavar="[false|true]",
+        help="Set object additionalProperties (default: false)",
+    )
     args = parser.parse_args()
 
     # If input is omitted and stdin is piped, read JSON from stdin.
@@ -210,7 +228,7 @@ def main() -> None:
 
     schema = {
         "$schema": SCHEMA_DRAFT,
-        **infer_schema(data),
+        **infer_schema(data, additional_properties=args.additional_properties),
     }
 
     if args.minify:
