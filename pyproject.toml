@@ -5,13 +5,25 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "json-to-schema"
 version = "0.1.0"
-description = "Generate a JSON Schema (draft 2020-12) from a sample JSON instance."
+description = "A tool to infer JSON Schemas from JSON data."
 readme = "README.md"
 requires-python = ">=3.8"
 license = { file = "LICENSE" }
 authors = [
   { name = "Isak Lindgren" }
 ]
+keywords = [
+  "json",
+  "json-schema",
+  "schema",
+  "generator",
+  "inference",
+  "cli",
+  "draft-2020-12",
+  "schema-generator",
+  "json-schema-inference",
+]
+urls = { Homepage = "https://github.com/isalin/json-to-schema", Repository = "https://github.com/isalin/json-to-schema", Issues = "https://github.com/isalin/json-to-schema/issues", Changelog = "https://github.com/isalin/json-to-schema/releases" }
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Developers",

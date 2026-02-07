@@ -1,6 +1,12 @@
 # json-to-schema
 
-Generate a JSON Schema (based on [draft 2020-12](https://json-schema.org/draft/2020-12)) from a sample JSON instance.
+[![PyPI version](https://img.shields.io/pypi/v/json-to-schema.svg)](https://pypi.org/project/json-to-schema/)
+[![Python versions](https://img.shields.io/pypi/pyversions/json-to-schema.svg)](https://pypi.org/project/json-to-schema/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+`json-to-schema` is a Python tool that infers a JSON Schema from JSON data.
+Use it to generate JSON Schema definitions quickly from real payloads.
+It outputs schemas compatible with [JSON Schema draft 2020-12](https://json-schema.org/draft/2020-12).
 
 ## Features
 
@@ -19,7 +25,7 @@ Generate a JSON Schema (based on [draft 2020-12](https://json-schema.org/draft/2
 pip install json-to-schema
 ```
 
-## CLI Usage
+## Generate JSON Schema from a JSON file (CLI)
 
 Provide an input JSON file (defaults to `file.json`) and print the inferred schema to stdout:
 
@@ -33,7 +39,7 @@ Specify a custom input file and write output to a schema file:
 json-to-schema -i input.json -o schema.json
 ```
 
-## Library Usage
+## Infer JSON Schema in Python code (library usage)
 
 You can also import and use this package directly in Python applications:
 
@@ -56,7 +62,7 @@ schema = {
 print(json.dumps(schema, indent=2))
 ```
 
-## Example
+## Example: convert sample JSON to schema
 
 Input (`input.json`):
 
