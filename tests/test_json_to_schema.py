@@ -106,6 +106,12 @@ class TestMergeSchemas(unittest.TestCase):
         self.assertEqual(merged["minimum"], 2)
         self.assertEqual(merged["maximum"], 10)
 
+    def test_merge_schemas_enum_union(self):
+        a = {"type": "string", "enum": ["a", "b"]}
+        b = {"type": "string", "enum": ["b", "c"]}
+        merged = json_to_schema.merge_schemas(a, b)
+        self.assertEqual(merged["enum"], ["a", "b", "c"])
+
 
 class TestInferSchema(unittest.TestCase):
     def test_infer_schema_object(self):
@@ -141,6 +147,33 @@ class TestInferSchema(unittest.TestCase):
         schema = json_to_schema.infer_schema(data, additional_properties=False)
         self.assertFalse(schema["additionalProperties"])
         self.assertFalse(schema["properties"]["a"]["additionalProperties"])
+
+    def test_infer_schema_bounds_for_string_and_array(self):
+        schema = json_to_schema.infer_schema(
+            {"name": "abc", "tags": ["x", "yz"]},
+            infer_bounds=True,
+        )
+        self.assertEqual(schema["properties"]["name"]["minLength"], 3)
+        self.assertEqual(schema["properties"]["name"]["maxLength"], 3)
+        self.assertEqual(schema["properties"]["tags"]["minItems"], 2)
+        self.assertEqual(schema["properties"]["tags"]["maxItems"], 2)
+        self.assertEqual(schema["properties"]["tags"]["items"]["minLength"], 1)
+        self.assertEqual(schema["properties"]["tags"]["items"]["maxLength"], 2)
+
+    def test_infer_schema_bounds_for_empty_array(self):
+        schema = json_to_schema.infer_schema([], infer_bounds=True)
+        self.assertEqual(schema["minItems"], 0)
+        self.assertEqual(schema["maxItems"], 0)
+
+    def test_infer_schema_enum_for_scalar_values(self):
+        schema = json_to_schema.infer_schema([1, 2, 1], infer_enum=True)
+        self.assertEqual(schema["items"]["enum"], [1, 2])
+
+    def test_infer_schema_enum_and_bounds_together(self):
+        schema = json_to_schema.infer_schema(["aa", "b"], infer_enum=True, infer_bounds=True)
+        self.assertEqual(schema["items"]["enum"], ["aa", "b"])
+        self.assertEqual(schema["items"]["minLength"], 1)
+        self.assertEqual(schema["items"]["maxLength"], 2)
 
 
 class TestMain(unittest.TestCase):
@@ -392,6 +425,45 @@ class TestMain(unittest.TestCase):
             ):
                 with self.assertRaises(SystemExit):
                     json_to_schema.main()
+
+    def test_main_infer_bounds(self):
+        with TemporaryDirectory() as tmpdir:
+            input_path = Path(tmpdir) / "input.json"
+            input_path.write_text(json.dumps({"name": "abc", "scores": [1, 3]}), encoding="utf-8")
+
+            buf = io.StringIO()
+            with patch.object(
+                sys,
+                "argv",
+                ["json_to_schema.py", "-i", str(input_path), "--infer-bounds"],
+            ):
+                with redirect_stdout(buf):
+                    json_to_schema.main()
+
+            output = json.loads(buf.getvalue())
+            self.assertEqual(output["properties"]["name"]["minLength"], 3)
+            self.assertEqual(output["properties"]["name"]["maxLength"], 3)
+            self.assertEqual(output["properties"]["scores"]["minItems"], 2)
+            self.assertEqual(output["properties"]["scores"]["maxItems"], 2)
+            self.assertEqual(output["properties"]["scores"]["items"]["minimum"], 1)
+            self.assertEqual(output["properties"]["scores"]["items"]["maximum"], 3)
+
+    def test_main_infer_enum(self):
+        with TemporaryDirectory() as tmpdir:
+            input_path = Path(tmpdir) / "input.json"
+            input_path.write_text(json.dumps({"status": ["ok", "fail", "ok"]}), encoding="utf-8")
+
+            buf = io.StringIO()
+            with patch.object(
+                sys,
+                "argv",
+                ["json_to_schema.py", "-i", str(input_path), "--infer-enum"],
+            ):
+                with redirect_stdout(buf):
+                    json_to_schema.main()
+
+            output = json.loads(buf.getvalue())
+            self.assertEqual(output["properties"]["status"]["items"]["enum"], ["ok", "fail"])
 
 
 class TestFixtureDrivenSchemaInference(unittest.TestCase):

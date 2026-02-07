@@ -151,6 +151,19 @@ def merge_schemas(a: Dict[str, Any], b: Dict[str, Any]) -> Dict[str, Any]:
         elif key in b:
             out[key] = b[key]
 
+    # Merge enum values by set union while preserving first-seen order.
+    if "enum" in a or "enum" in b:
+        merged_enum: List[Any] = []
+        seen = set()
+        for candidate in (a.get("enum", []), b.get("enum", [])):
+            for value in candidate:
+                key = json.dumps(value, sort_keys=True)
+                if key not in seen:
+                    seen.add(key)
+                    merged_enum.append(value)
+        if merged_enum:
+            out["enum"] = merged_enum
+
     return out
 
 
@@ -163,7 +176,13 @@ def parse_bool_flag(value: str) -> bool:
     raise argparse.ArgumentTypeError("must be one of: true, false")
 
 
-def infer_schema(value: Any, *, additional_properties: bool = False) -> Dict[str, Any]:
+def infer_schema(
+    value: Any,
+    *,
+    additional_properties: bool = False,
+    infer_bounds: bool = False,
+    infer_enum: bool = False,
+) -> Dict[str, Any]:
     t = json_type(value)
 
     # Handle nullability by including "null" in type if needed in merges;
@@ -172,7 +191,12 @@ def infer_schema(value: Any, *, additional_properties: bool = False) -> Dict[str
         props: Dict[str, Any] = {}
         required: List[str] = []
         for k, v in value.items():
-            props[k] = infer_schema(v, additional_properties=additional_properties)
+            props[k] = infer_schema(
+                v,
+                additional_properties=additional_properties,
+                infer_bounds=infer_bounds,
+                infer_enum=infer_enum,
+            )
             required.append(k)
 
         return {
@@ -185,20 +209,49 @@ def infer_schema(value: Any, *, additional_properties: bool = False) -> Dict[str
     if t == "array":
         if not value:
             # Empty array: we don't know item type
-            return {"type": "array", "items": {}}
+            schema: Dict[str, Any] = {"type": "array", "items": {}}
+            if infer_bounds:
+                schema["minItems"] = 0
+                schema["maxItems"] = 0
+            return schema
 
         # Infer schema for each element and merge
-        item_schema = infer_schema(value[0], additional_properties=additional_properties)
+        item_schema = infer_schema(
+            value[0],
+            additional_properties=additional_properties,
+            infer_bounds=infer_bounds,
+            infer_enum=infer_enum,
+        )
         for item in value[1:]:
             item_schema = merge_schemas(
                 item_schema,
-                infer_schema(item, additional_properties=additional_properties),
+                infer_schema(
+                    item,
+                    additional_properties=additional_properties,
+                    infer_bounds=infer_bounds,
+                    infer_enum=infer_enum,
+                ),
             )
 
-        return {"type": "array", "items": item_schema}
+        schema = {"type": "array", "items": item_schema}
+        if infer_bounds:
+            schema["minItems"] = len(value)
+            schema["maxItems"] = len(value)
+        return schema
 
     # Scalars
-    return {"type": t}
+    schema = {"type": t}
+    if infer_bounds:
+        if t in ("integer", "number"):
+            schema["minimum"] = value
+            schema["maximum"] = value
+        elif t == "string":
+            value_len = len(value)
+            schema["minLength"] = value_len
+            schema["maxLength"] = value_len
+    if infer_enum and t in ("null", "boolean", "integer", "number", "string"):
+        schema["enum"] = [value]
+    return schema
 
 
 def main() -> None:
@@ -216,6 +269,16 @@ def main() -> None:
         type=parse_bool_flag,
         metavar="[false|true]",
         help="Set object additionalProperties (default: false)",
+    )
+    parser.add_argument(
+        "--infer-bounds",
+        action="store_true",
+        help="Infer min/max constraints (minimum/maximum, minLength/maxLength, minItems/maxItems)",
+    )
+    parser.add_argument(
+        "--infer-enum",
+        action="store_true",
+        help="Infer enum constraints from observed scalar values",
     )
     args = parser.parse_args()
 
@@ -236,7 +299,12 @@ def main() -> None:
 
     schema = {
         "$schema": SCHEMA_DRAFT,
-        **infer_schema(data, additional_properties=args.additional_properties),
+        **infer_schema(
+            data,
+            additional_properties=args.additional_properties,
+            infer_bounds=args.infer_bounds,
+            infer_enum=args.infer_enum,
+        ),
     }
 
     if args.minify:
