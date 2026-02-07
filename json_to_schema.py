@@ -6,6 +6,7 @@ Usage:
   python json_to_schema.py            # reads file.json, prints schema to stdout
   echo '{"a": 1}' | python json_to_schema.py
   python json_to_schema.py -o schema.json
+  python json_to_schema.py --minify
 """
 
 from __future__ import annotations
@@ -193,6 +194,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Infer JSON Schema from file.json")
     parser.add_argument("-i", "--input", default="file.json", help="Input JSON file (default: file.json)")
     parser.add_argument("-o", "--output", default=None, help="Output schema file (default: stdout)")
+    parser.add_argument(
+        "--minify",
+        action="store_true",
+        help="Print compact/minified JSON output",
+    )
     args = parser.parse_args()
 
     # If input is omitted and stdin is piped, read JSON from stdin.
@@ -207,7 +213,10 @@ def main() -> None:
         **infer_schema(data),
     }
 
-    text = json.dumps(schema, indent=2, ensure_ascii=False, sort_keys=False)
+    if args.minify:
+        text = json.dumps(schema, ensure_ascii=False, sort_keys=False, separators=(",", ":"))
+    else:
+        text = json.dumps(schema, indent=2, ensure_ascii=False, sort_keys=False)
 
     if args.output:
         with open(args.output, "w", encoding="utf-8") as f:

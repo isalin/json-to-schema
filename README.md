@@ -39,6 +39,12 @@ Specify a custom input file and write output to a schema file:
 json-to-schema -i input.json -o schema.json
 ```
 
+Print compact/minified output:
+
+```bash
+json-to-schema -i input.json --minify
+```
+
 You can also pipe JSON directly into stdin:
 
 ```bash

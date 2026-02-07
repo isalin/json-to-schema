@@ -255,6 +255,40 @@ class TestMain(unittest.TestCase):
             self.assertEqual(output["type"], "array")
             self.assertEqual(output["items"]["type"], "string")
 
+    def test_main_stdout_minified(self):
+        with TemporaryDirectory() as tmpdir:
+            input_path = Path(tmpdir) / "input.json"
+            input_path.write_text(json.dumps({"a": 1}), encoding="utf-8")
+
+            buf = io.StringIO()
+            with patch.object(sys, "argv", ["json_to_schema.py", "-i", str(input_path), "--minify"]):
+                with redirect_stdout(buf):
+                    json_to_schema.main()
+
+            raw_output = buf.getvalue().strip()
+            parsed = json.loads(raw_output)
+            self.assertEqual(parsed["$schema"], json_to_schema.SCHEMA_DRAFT)
+            self.assertEqual(parsed["properties"]["a"]["type"], "integer")
+            self.assertNotIn("\n", raw_output)
+
+    def test_main_output_file_minified(self):
+        with TemporaryDirectory() as tmpdir:
+            input_path = Path(tmpdir) / "input.json"
+            output_path = Path(tmpdir) / "schema.json"
+            input_path.write_text(json.dumps({"a": 1}), encoding="utf-8")
+
+            with patch.object(
+                sys,
+                "argv",
+                ["json_to_schema.py", "-i", str(input_path), "-o", str(output_path), "--minify"],
+            ):
+                json_to_schema.main()
+
+            raw_output = output_path.read_text(encoding="utf-8").strip()
+            parsed = json.loads(raw_output)
+            self.assertEqual(parsed["$schema"], json_to_schema.SCHEMA_DRAFT)
+            self.assertNotIn("\n", raw_output)
+
     def test_main_missing_default_file_raises_when_stdin_is_tty(self):
         stdin = FakeStdin("", is_tty=True)
         with patch.object(sys, "argv", ["json_to_schema.py"]):
