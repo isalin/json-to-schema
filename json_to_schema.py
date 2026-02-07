@@ -220,11 +220,19 @@ def main() -> None:
     args = parser.parse_args()
 
     # If input is omitted and stdin is piped, read JSON from stdin.
-    if args.input == "file.json" and not sys.stdin.isatty():
-        data = json.load(sys.stdin)
-    else:
-        with open(args.input, "r", encoding="utf-8") as f:
-            data = json.load(f)
+    try:
+        if args.input == "file.json" and not sys.stdin.isatty():
+            data = json.load(sys.stdin)
+        else:
+            with open(args.input, "r", encoding="utf-8") as f:
+                data = json.load(f)
+    except FileNotFoundError:
+        parser.error(f"Input file not found: {args.input}")
+    except json.JSONDecodeError as exc:
+        source = "stdin" if args.input == "file.json" and not sys.stdin.isatty() else args.input
+        parser.error(
+            f"Invalid JSON in {source}: {exc.msg} (line {exc.lineno}, column {exc.colno})"
+        )
 
     schema = {
         "$schema": SCHEMA_DRAFT,

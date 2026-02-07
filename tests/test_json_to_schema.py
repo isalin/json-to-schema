@@ -2,7 +2,7 @@ import io
 import json
 import os
 import sys
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -301,7 +301,7 @@ class TestMain(unittest.TestCase):
             self.assertEqual(parsed["$schema"], json_to_schema.SCHEMA_DRAFT)
             self.assertNotIn("\n", raw_output)
 
-    def test_main_missing_default_file_raises_when_stdin_is_tty(self):
+    def test_main_missing_default_file_prints_friendly_error_when_stdin_is_tty(self):
         stdin = FakeStdin("", is_tty=True)
         with patch.object(sys, "argv", ["json_to_schema.py"]):
             with patch.object(sys, "stdin", stdin):
@@ -309,17 +309,26 @@ class TestMain(unittest.TestCase):
                     old_cwd = os.getcwd()
                     try:
                         os.chdir(tmpdir)
-                        with self.assertRaises(FileNotFoundError):
-                            json_to_schema.main()
+                        err = io.StringIO()
+                        with self.assertRaises(SystemExit) as cm:
+                            with redirect_stderr(err):
+                                json_to_schema.main()
+                        self.assertEqual(cm.exception.code, 2)
+                        self.assertIn("Input file not found: file.json", err.getvalue())
                     finally:
                         os.chdir(old_cwd)
 
-    def test_main_invalid_json_from_stdin_raises(self):
+    def test_main_invalid_json_from_stdin_prints_friendly_error(self):
         stdin = FakeStdin("{invalid-json", is_tty=False)
         with patch.object(sys, "argv", ["json_to_schema.py"]):
             with patch.object(sys, "stdin", stdin):
-                with self.assertRaises(json.JSONDecodeError):
-                    json_to_schema.main()
+                err = io.StringIO()
+                with self.assertRaises(SystemExit) as cm:
+                    with redirect_stderr(err):
+                        json_to_schema.main()
+                self.assertEqual(cm.exception.code, 2)
+                self.assertIn("Invalid JSON in stdin:", err.getvalue())
+                self.assertIn("line 1, column 2", err.getvalue())
 
     def test_main_additional_properties_defaults_to_false(self):
         with TemporaryDirectory() as tmpdir:
