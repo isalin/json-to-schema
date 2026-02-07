@@ -1,0 +1,25 @@
+[
+  {
+    "kind": "click",
+    "ts": 1,
+    "payload": {
+      "x": 10,
+      "y": 20
+    }
+  },
+  {
+    "kind": "view",
+    "ts": 2,
+    "payload": {
+      "path": "/"
+    }
+  },
+  {
+    "kind": "purchase",
+    "ts": 3,
+    "payload": {
+      "amount": 12.5,
+      "coupon": null
+    }
+  }
+]

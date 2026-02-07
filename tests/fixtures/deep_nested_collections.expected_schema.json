@@ -1,0 +1,54 @@
+{
+  "type": "object",
+  "properties": {
+    "groups": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer"
+                },
+                "roles": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "email": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "roles"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "members",
+          "name"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "count": {
+      "type": "integer"
+    }
+  },
+  "required": [
+    "count",
+    "groups"
+  ],
+  "additionalProperties": false
+}

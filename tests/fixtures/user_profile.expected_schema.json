@@ -1,0 +1,44 @@
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "integer"
+    },
+    "name": {
+      "type": "string"
+    },
+    "active": {
+      "type": "boolean"
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "meta": {
+      "type": "object",
+      "properties": {
+        "created_at": {
+          "type": "string"
+        },
+        "login_count": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "created_at",
+        "login_count"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "active",
+    "id",
+    "meta",
+    "name",
+    "tags"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,13 @@
+{
+  "id": 123,
+  "name": "Ada",
+  "active": true,
+  "tags": [
+    "admin",
+    "ops"
+  ],
+  "meta": {
+    "created_at": "2026-01-01",
+    "login_count": 10
+  }
+}

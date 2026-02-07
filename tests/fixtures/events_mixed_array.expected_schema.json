@@ -1,0 +1,41 @@
+{
+  "type": "array",
+  "items": {
+    "type": "object",
+    "properties": {
+      "kind": {
+        "type": "string"
+      },
+      "ts": {
+        "type": "integer"
+      },
+      "payload": {
+        "type": "object",
+        "properties": {
+          "x": {
+            "type": "integer"
+          },
+          "y": {
+            "type": "integer"
+          },
+          "path": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number"
+          },
+          "coupon": {
+            "type": "null"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "required": [
+      "kind",
+      "payload",
+      "ts"
+    ],
+    "additionalProperties": false
+  }
+}

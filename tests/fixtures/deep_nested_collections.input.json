@@ -1,0 +1,33 @@
+{
+  "groups": [
+    {
+      "name": "g1",
+      "members": [
+        {
+          "id": 1,
+          "roles": [
+            "owner",
+            "dev"
+          ]
+        },
+        {
+          "id": 2,
+          "roles": []
+        }
+      ]
+    },
+    {
+      "name": "g2",
+      "members": [
+        {
+          "id": 3,
+          "roles": [
+            "viewer"
+          ],
+          "email": "a@example.com"
+        }
+      ]
+    }
+  ],
+  "count": 2
+}
