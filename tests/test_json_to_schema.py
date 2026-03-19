@@ -1,6 +1,7 @@
 import io
 import json
 import os
+import pkgutil
 import sys
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
@@ -53,6 +54,12 @@ class TestMergeTypes(unittest.TestCase):
             json_to_schema.merge_types(["number"], ["integer", "string"]),
             ["integer", "number", "string"],
         )
+
+
+class TestPackageMetadata(unittest.TestCase):
+    def test_package_includes_typed_marker(self):
+        self.assertTrue(hasattr(json_to_schema, "__path__"))
+        self.assertIsNotNone(pkgutil.get_data("json_to_schema", "py.typed"))
 
 
 class TestMergeRequired(unittest.TestCase):

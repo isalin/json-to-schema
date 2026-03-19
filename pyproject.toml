@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "json-to-schema"
-version = "1.1.0"
+version = "1.2.0"
 description = "A tool to infer JSON Schemas from JSON data."
 readme = "README.md"
 requires-python = ">=3.8"
@@ -43,4 +43,7 @@ classifiers = [
 json-to-schema = "json_to_schema:main"
 
 [tool.setuptools]
-py-modules = ["json_to_schema"]
+packages = ["json_to_schema"]
+
+[tool.setuptools.package-data]
+json_to_schema = ["py.typed"]

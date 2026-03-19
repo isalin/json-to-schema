@@ -3,11 +3,11 @@
 Infer a JSON Schema from a JSON instance in file.json.
 
 Usage:
-  python json_to_schema.py            # reads file.json, prints schema to stdout
-  echo '{"a": 1}' | python json_to_schema.py
-  python json_to_schema.py -o schema.json
-  python json_to_schema.py --minify
-  python json_to_schema.py -i payload.json --validate schema.json
+  python -m json_to_schema            # reads file.json, prints schema to stdout
+  echo '{"a": 1}' | python -m json_to_schema
+  python -m json_to_schema -o schema.json
+  python -m json_to_schema --minify
+  python -m json_to_schema -i payload.json --validate schema.json
 """
 
 from __future__ import annotations
