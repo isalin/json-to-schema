@@ -44,7 +44,9 @@ jobs:
               sys.exit(1)
           PY
       - name: Run tests
-        run: python -m unittest discover -s tests
+        run: |
+          python -m pip install -e .
+          python -m unittest discover -s tests
       - name: Build distributions
         run: |
           python -m pip install --upgrade pip build twine

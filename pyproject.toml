@@ -43,6 +43,7 @@ classifiers = [
 json-to-schema = "json_to_schema:main"
 
 [tool.setuptools]
+package-dir = {"" = "src"}
 packages = ["json_to_schema"]
 
 [tool.setuptools.package-data]

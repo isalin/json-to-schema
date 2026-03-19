@@ -2,6 +2,7 @@ import io
 import json
 import os
 import pkgutil
+import subprocess
 import sys
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
@@ -60,6 +61,16 @@ class TestPackageMetadata(unittest.TestCase):
     def test_package_includes_typed_marker(self):
         self.assertTrue(hasattr(json_to_schema, "__path__"))
         self.assertIsNotNone(pkgutil.get_data("json_to_schema", "py.typed"))
+
+    def test_python_module_entrypoint_help(self):
+        result = subprocess.run(
+            [sys.executable, "-m", "json_to_schema", "--help"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("Infer JSON Schema from file.json", result.stdout)
 
 
 class TestMergeRequired(unittest.TestCase):

@@ -176,5 +176,6 @@ Output (`schema.json`):
 ## Testing
 
 ```bash
+python -m pip install -e .
 python -m unittest discover -s tests
 ```
