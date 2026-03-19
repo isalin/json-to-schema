@@ -1,2 +1,7 @@
 *.pyc
 /*.json
+__pycache__/
+.pytest_cache/
+build/
+dist/
+*.egg-info/
