@@ -185,8 +185,8 @@ def main() -> None:
         if args.field_description:
             parser.error("--field-description cannot be used with --validate")
 
-        schema = load_schema_json(parser, args.validate)
-        schema_errors = validate_schema_definition(schema)
+        existing_schema = load_schema_json(parser, args.validate)
+        schema_errors = validate_schema_definition(existing_schema)
         if schema_errors:
             print(
                 f"Invalid schema in {args.validate}:",
@@ -197,7 +197,7 @@ def main() -> None:
             raise SystemExit(1)
 
         payload = load_input_json(parser, args.input)
-        validation_errors = validate_against_schema(payload, schema)
+        validation_errors = validate_against_schema(payload, existing_schema)
         if validation_errors:
             print(
                 f"Validation failed: input data does not match schema {args.validate}.",
