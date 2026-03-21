@@ -4,15 +4,20 @@ import json
 import math
 import re
 from copy import deepcopy
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Union
 
+# Recursive type alias for any valid JSON value.
+JsonValue = Union[None, bool, int, float, str, List["JsonValue"], Dict[str, "JsonValue"]]
+
+# The "type" field in a JSON Schema can be a single string, a list of strings, or absent (None).
+JsonSchemaType = Union[str, List[str], None]
 
 SCHEMA_DRAFT = "https://json-schema.org/draft/2020-12/schema"
 IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 VALID_JSON_TYPES = {"null", "boolean", "integer", "number", "string", "array", "object"}
 
 
-def json_type(value: Any) -> str:
+def json_type(value: JsonValue) -> str:
     if value is None:
         return "null"
     if isinstance(value, bool):
@@ -31,13 +36,13 @@ def json_type(value: Any) -> str:
     return "string"
 
 
-def merge_types(t1: Any, t2: Any) -> Any:
+def merge_types(t1: JsonSchemaType, t2: JsonSchemaType) -> JsonSchemaType:
     """
     Merge JSON Schema 'type' fields.
     Can be a string or a list of strings.
     """
 
-    def to_set(t: Any) -> Set[str]:
+    def to_set(t: JsonSchemaType) -> Set[str]:
         if t is None:
             return set()
         if isinstance(t, str):
@@ -145,7 +150,7 @@ def merge_schemas(a: Dict[str, Any], b: Dict[str, Any]) -> Dict[str, Any]:
 
     # Merge enum values by set union while preserving first-seen order.
     if "enum" in a or "enum" in b:
-        merged_enum: List[Any] = []
+        merged_enum: List[JsonValue] = []
         seen = set()
         for candidate in (a.get("enum", []), b.get("enum", [])):
             for value in candidate:
@@ -160,7 +165,7 @@ def merge_schemas(a: Dict[str, Any], b: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def resolve_field_schema_path(schema: Dict[str, Any], field_path: str) -> Dict[str, Any]:
-    node: Any = schema
+    node: Dict[str, Any] = schema
     segments = [segment.strip() for segment in field_path.split(".")]
     if not segments or any(not segment for segment in segments):
         raise ValueError("field path cannot contain empty segments")
@@ -214,7 +219,7 @@ def should_infer_for_field(
 
 
 def infer_schema(
-    value: Any,
+    value: JsonValue,
     *,
     additional_properties: bool = False,
     infer_bounds_fields: Optional[Set[str]] = None,
@@ -231,7 +236,7 @@ def infer_schema(
 
     # Handle nullability by including "null" in type if needed in merges;
     # at leaf, just set type = "null"
-    if t == "object":
+    if isinstance(value, dict):
         props: Dict[str, Any] = {}
         required: List[str] = []
         for k, v in value.items():
@@ -253,7 +258,7 @@ def infer_schema(
             "additionalProperties": additional_properties,
         }
 
-    if t == "array":
+    if isinstance(value, list):
         if not value:
             # Empty array: we don't know item type
             schema: Dict[str, Any] = {"type": "array", "items": {}}
@@ -293,21 +298,21 @@ def infer_schema(
         return schema
 
     # Scalars
-    schema = {"type": t}
+    scalar_schema: Dict[str, Any] = {"type": t}
     if infer_bounds_here:
-        if t in ("integer", "number"):
-            schema["minimum"] = value
-            schema["maximum"] = value
-        elif t == "string":
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            scalar_schema["minimum"] = value
+            scalar_schema["maximum"] = value
+        elif isinstance(value, str):
             value_len = len(value)
-            schema["minLength"] = value_len
-            schema["maxLength"] = value_len
-    if infer_enum_here and t in ("null", "boolean", "integer", "number", "string"):
-        schema["enum"] = [value]
-    return schema
+            scalar_schema["minLength"] = value_len
+            scalar_schema["maxLength"] = value_len
+    if infer_enum_here:
+        scalar_schema["enum"] = [value]
+    return scalar_schema
 
 
-def _type_matches(value: Any, expected: str) -> bool:
+def _type_matches(value: JsonValue, expected: str) -> bool:
     if expected == "null":
         return value is None
     if expected == "boolean":
@@ -325,7 +330,7 @@ def _type_matches(value: Any, expected: str) -> bool:
     return False
 
 
-def _is_json_number(value: Any) -> bool:
+def _is_json_number(value: JsonValue) -> bool:
     return (isinstance(value, int) and not isinstance(value, bool)) or isinstance(value, float)
 
 
@@ -335,14 +340,14 @@ def _json_path_for_key(path: str, key: str) -> str:
     return f"{path}[{json.dumps(key)}]"
 
 
-def _describe_type(value: Any) -> str:
+def _describe_type(value: JsonValue) -> str:
     value_type = json_type(value)
-    if value_type == "number":
+    if value_type == "number" and isinstance(value, float):
         return "number" if math.isfinite(value) else "non-finite number"
     return value_type
 
 
-def validate_schema_definition(schema: Any, *, path: str = "$") -> List[str]:
+def validate_schema_definition(schema: bool | Dict[str, Any], *, path: str = "$") -> List[str]:
     errors: List[str] = []
 
     if isinstance(schema, bool):
@@ -480,8 +485,8 @@ def validate_schema_definition(schema: Any, *, path: str = "$") -> List[str]:
 
 
 def validate_against_schema(
-    value: Any,
-    schema: Any,
+    value: JsonValue,
+    schema: bool | Dict[str, Any],
     *,
     path: str = "$",
 ) -> List[str]:
